@@ -1,0 +1,12 @@
+This repository is a derivative work of:
+https://github.com/rep1ace/SMU-Lecture-Enroller
+
+Upstream license: GNU General Public License v2.0 (GPL-2.0)
+
+This fork adds and modifies features including:
+- Desktop GUI workflow
+- Cookie-based login mode
+- 4-preference enrollment strategy
+- Windows packaging scripts and CI workflow
+
+Accordingly, this project is distributed under GPL-2.0.

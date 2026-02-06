@@ -1,6 +1,11 @@
 # SMU-Lecture-Enroller
 南方医科大学教务抢课脚本
 
+## 来源与声明
+- 本项目基于上游仓库二次开发：`https://github.com/rep1ace/SMU-Lecture-Enroller`
+- 当前仓库主要新增了 GUI、Cookie 登录流程、四志愿抢课逻辑、自动打包工作流等能力
+- 由于包含上游 GPL-2.0 代码与衍生修改，整体按 GPL-2.0 许可发布
+
 ## CLI 用法
 ```
 pip install uv
@@ -59,3 +64,6 @@ py -3 gui.py
 
 成功后产物在：
 - `dist\SMU-Lecture-Enroller-GUI.exe`
+
+## License
+- 本项目许可证：`GPL-2.0`（见 `LICENSE`）
