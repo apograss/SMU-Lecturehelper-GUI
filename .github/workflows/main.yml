@@ -1,0 +1,35 @@
+name: Build Windows GUI EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests beautifulsoup4 lxml pillow pycryptodome tzdata pyinstaller
+      - name: Build GUI EXE
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onefile --name SMU-Lecture-Enroller-GUI gui.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SMU-Lecture-Enroller-GUI
+          path: dist/SMU-Lecture-Enroller-GUI.exe
