@@ -331,14 +331,14 @@ def get_course_list(
     return courses, coursecateurl
 
 
-def order_course(session: requests.Session, kcrwdm: str, kcmc: str, url: str) -> requests.Response:
+def order_course(session: requests.Session, kcrwdm: str, kcmc: str, url: str, hlct: int = 0) -> requests.Response:
     add_url = url + "/add"
     payload = {
         "kcrwdm": kcrwdm,
         "kcmc": kcmc,
         "qz": -1,
         "xxyqdm": "",
-        "hlct": 0,
+        "hlct": hlct,
     }
     return request_with_timeout(session, "POST", add_url, data=payload, timeout=ORDER_TIMEOUT)
 
@@ -402,6 +402,30 @@ def select_job(
         if msg == "超出选课要求门数(1.0门)":
             logger("你已经达到选课上限。")
             return True
+
+        # 检测冲突提示，自动确认（模拟点击弹窗"确定"按钮）
+        if "冲突" in msg:
+            logger(f"检测到冲突提示，自动确认: {msg}")
+            try:
+                resp2 = order_course(
+                    session, course["kcrwdm"], course["kcmc"],
+                    coursecateurl, hlct=1,
+                )
+                resptext2 = resp2.json()
+                code2 = resptext2.get("code")
+                msg2 = str(resptext2.get("message", ""))
+                last_message = msg2 or str(resptext2)
+                if code2 == 0 or msg2 == "您已经选了该门课程":
+                    logger(f"选课成功（忽略冲突）：{course.get('kcmc', '')}")
+                    return True
+                if msg2 == "超出选课要求门数(1.0门)":
+                    logger("你已经达到选课上限。")
+                    return True
+                logger(f"确认冲突后仍失败: {last_message}")
+            except requests.RequestException as exc:
+                logger(f"确认冲突请求异常: {exc}")
+            except ValueError:
+                logger("确认冲突响应非 JSON")
 
         if RETRY_INTERVAL_SECONDS > 0:
             time.sleep(RETRY_INTERVAL_SECONDS)
