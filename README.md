@@ -1,3 +1,5 @@
+
+
 # SMU-Lecturehelper-GUI
 南方医科大学教务抢课脚本
 
@@ -38,6 +40,7 @@ py -3 gui.py
 ```
 
 要求：
+- Python >=3.13
 - Python 环境必须包含 `tkinter`
 
 ### 抢课阶段逻辑
