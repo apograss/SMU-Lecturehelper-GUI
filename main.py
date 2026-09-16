@@ -22,6 +22,8 @@ WELCOME_URL = "https://zhjw.smu.edu.cn/new/welcome.page?ui=new"
 XK_ROOT_URL = "https://zhjw.smu.edu.cn/new/student/xsxk/"
 REQUEST_TIMEOUT = (1.5, 2.5)
 ORDER_TIMEOUT = (0.8, 1.2)
+VERIFY_TIMEOUT = (5.0, 30.0)
+VERIFY_ATTEMPTS = 3
 MAX_ATTEMPTS = 120
 PRIMARY_BURST_ATTEMPTS = 12
 RETRY_INTERVAL_SECONDS = 0.0
@@ -331,7 +333,14 @@ def get_course_list(
     return courses, coursecateurl
 
 
-def order_course(session: requests.Session, kcrwdm: str, kcmc: str, url: str, hlct: int = 0) -> requests.Response:
+def order_course(
+    session: requests.Session,
+    kcrwdm: str,
+    kcmc: str,
+    url: str,
+    hlct: int = 0,
+    timeout: tuple[float, float] = ORDER_TIMEOUT,
+) -> requests.Response:
     add_url = url + "/add"
     payload = {
         "kcrwdm": kcrwdm,
@@ -340,7 +349,7 @@ def order_course(session: requests.Session, kcrwdm: str, kcmc: str, url: str, hl
         "xxyqdm": "",
         "hlct": hlct,
     }
-    return request_with_timeout(session, "POST", add_url, data=payload, timeout=ORDER_TIMEOUT)
+    return request_with_timeout(session, "POST", add_url, data=payload, timeout=timeout)
 
 
 def select_job(
@@ -370,6 +379,7 @@ def select_job(
         return False
 
     last_message = ""
+    saw_uncertain = False
     for i in range(MAX_ATTEMPTS):
         if i < PRIMARY_BURST_ATTEMPTS:
             order = orders[0]
@@ -386,9 +396,12 @@ def select_job(
             )
             resptext = resp.json()
         except requests.RequestException as exc:
+            # 读超时 ≠ 失败：请求可能已在服务器生效，只是响应没回来
+            saw_uncertain = True
             last_message = f"请求异常: {exc}"
             continue
         except ValueError:
+            saw_uncertain = True
             last_message = "响应非 JSON，可能被网关限流"
             continue
 
@@ -423,14 +436,86 @@ def select_job(
                     return True
                 logger(f"确认冲突后仍失败: {last_message}")
             except requests.RequestException as exc:
+                saw_uncertain = True
                 logger(f"确认冲突请求异常: {exc}")
             except ValueError:
+                saw_uncertain = True
                 logger("确认冲突响应非 JSON")
 
         if RETRY_INTERVAL_SECONDS > 0:
             time.sleep(RETRY_INTERVAL_SECONDS)
 
+    if saw_uncertain:
+        logger("抢课期间出现超时或异常响应，结果未知，正在用长超时请求核实...")
+        return verify_enrollment(orders, session, courses, coursecateurl, logger=logger)
     logger(f"什么都没抢到，最后返回：{last_message}")
+    return False
+
+
+def verify_enrollment(
+    orders: list[int],
+    session: requests.Session,
+    courses: list[dict],
+    coursecateurl: str,
+    logger: Logger = print,
+) -> bool:
+    """
+    用长超时请求按志愿顺序重发选课，核实超时期间的实际结果。
+    已选上时服务器会返回"您已经选了该门课程"；仍未选上时该请求本身
+    也会完成选课，与抢课目标一致，不会重复选课（受选课门数上限约束）。
+    """
+    for _ in range(VERIFY_ATTEMPTS):
+        uncertain = False
+        for order in orders:
+            course = courses[order - 1]
+            try:
+                resp = order_course(
+                    session,
+                    course["kcrwdm"],
+                    course["kcmc"],
+                    coursecateurl,
+                    timeout=VERIFY_TIMEOUT,
+                )
+                resptext = resp.json()
+            except (requests.RequestException, ValueError):
+                uncertain = True
+                continue
+
+            code = resptext.get("code")
+            msg = str(resptext.get("message", ""))
+            if code == 0 or msg == "您已经选了该门课程":
+                logger(f"核实确认选课成功：{course.get('kcmc', '')}（{msg or resptext}）")
+                return True
+            if msg == "超出选课要求门数(1.0门)":
+                logger("核实确认：你已达到选课上限。")
+                return True
+
+            if "冲突" in msg:
+                logger(f"核实期间检测到冲突提示，自动确认: {msg}")
+                try:
+                    resp2 = order_course(
+                        session, course["kcrwdm"], course["kcmc"],
+                        coursecateurl, hlct=1, timeout=VERIFY_TIMEOUT,
+                    )
+                    resptext2 = resp2.json()
+                except (requests.RequestException, ValueError):
+                    uncertain = True
+                    continue
+                code2 = resptext2.get("code")
+                msg2 = str(resptext2.get("message", ""))
+                if code2 == 0 or msg2 == "您已经选了该门课程":
+                    logger(f"核实确认选课成功（忽略冲突）：{course.get('kcmc', '')}")
+                    return True
+                if msg2 == "超出选课要求门数(1.0门)":
+                    logger("核实确认：你已达到选课上限。")
+                    return True
+
+        if not uncertain:
+            # 所有志愿都拿到了服务器的明确答复，可以确认未选上
+            logger("核实结果：各志愿均未选上，本次抢课未成功。")
+            return False
+
+    logger("核实请求仍无法得到响应，选课结果未知——请到教务系统“已选课程”中手动核实。")
     return False
 
 
